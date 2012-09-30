@@ -55,7 +55,7 @@ CPSegmentSwitchTrackingMomentary = 2;
 
 + (id)themeAttributes
 {
-    return [CPDictionary dictionaryWithObjects:[CPCenterTextAlignment, CPCenterVerticalTextAlignment, CPImageLeft, CPScaleNone, _CGInsetMakeZero(), _CGInsetMakeZero(), [CPNull null], [CPNull null], [CPNull null], [CPNull null], 1.0, 24.0]
+    return [CPDictionary dictionaryWithObjects:[CPCenterTextAlignment, CPCenterVerticalTextAlignment, CPImageLeft, CPImageScaleNone, _CGInsetMakeZero(), _CGInsetMakeZero(), [CPNull null], [CPNull null], [CPNull null], [CPNull null], 1.0, 24.0]
                                        forKeys:[@"alignment", @"vertical-alignment", @"image-position", @"image-scaling", @"bezel-inset", @"content-inset", @"left-segment-bezel-color", @"right-segment-bezel-color", @"center-segment-bezel-color", @"divider-bezel-color", @"divider-thickness", @"default-height"]];
 }
 
@@ -366,11 +366,14 @@ CPSegmentSwitchTrackingMomentary = 2;
     @param aSegment the segment to enable/disable
     @throws CPRangeException if \c aSegment is out of bounds
 */
-- (void)setEnabled:(BOOL)isEnabled forSegment:(unsigned)aSegment
+- (void)setEnabled:(BOOL)shouldBeEnabled forSegment:(unsigned)aSegment
 {
-    [_segments[aSegment] setEnabled:isEnabled];
+    if ([_segments[aSegment] enabled] === shouldBeEnabled)
+        return;
 
-    if (isEnabled)
+    [_segments[aSegment] setEnabled:shouldBeEnabled];
+
+    if (shouldBeEnabled)
         _themeStates[aSegment] &= ~CPThemeStateDisabled;
     else
         _themeStates[aSegment] |= CPThemeStateDisabled;

@@ -179,7 +179,8 @@ CPDOMEventTouchCancel                   = "touchcancel";
 
 var _CPEventPeriodicEventPeriod         = 0,
     _CPEventPeriodicEventTimer          = nil,
-    _CPEventUpperCaseRegex              = new RegExp("[A-Z]");
+    _CPEventUpperCaseRegex              = new RegExp("[A-Z]"),
+    _CPEventStartupMilliseconds         = new Date().getTime();
 
 /*!
     @ingroup appkit
@@ -203,10 +204,20 @@ var _CPEventPeriodicEventPeriod         = 0,
     BOOL                _isARepeat;
     unsigned            _keyCode;
     DOMEvent            _DOMEvent;
+    int                 _data1;
+    int                 _data2;
 
     float               _deltaX;
     float               _deltaY;
     float               _deltaZ;
+}
+
+/*!
+    Returns the current time in fractional seconds since startup.
+*/
++ (CPTimeInterval)currentTimestamp
+{
+    return (new Date().getTime() - _CPEventStartupMilliseconds) / 1000;
 }
 
 /*!
@@ -389,7 +400,7 @@ var _CPEventPeriodicEventPeriod         = 0,
 }
 
 /*!
-    Returns the time the event occurred.
+    Returns the time the event occurred in seconds since startup.
 */
 - (CPTimeInterval)timestamp
 {
@@ -508,6 +519,16 @@ var _CPEventPeriodicEventPeriod         = 0,
     return _DOMEvent;
 }
 
+- (int)data1
+{
+    return _data1;
+}
+
+- (int)data2
+{
+    return _data2;
+}
+
 // Getting Scroll Wheel Event Information
 /*!
     Returns the change in the x-axis for a mouse event.
@@ -621,11 +642,34 @@ var _CPEventPeriodicEventPeriod         = 0,
     _CPEventPeriodicEventTimer = nil;
 }
 
+- (CPString)description
+{
+    switch (_type)
+    {
+        case CPKeyDown:
+        case CPKeyUp:
+        case CPFlagsChanged:
+            return [CPString stringWithFormat:@"CPEvent: type=%d loc=%@ time=%.1f flags=0x%X win=%@ winNum=%d ctxt=%@ chars=\"%@\" unmodchars=\"%@\" repeat=%d keyCode=%d", _type, CPStringFromPoint(_location), _timestamp, _modifierFlags, _window, _windowNumber, _context, _characters, _charactersIgnoringModifiers, _isARepeat, _keyCode];
+        case CPLeftMouseDown:
+        case CPLeftMouseUp:
+        case CPRightMouseDown:
+        case CPRightMouseUp:
+        case CPMouseMoved:
+        case CPLeftMouseDragged:
+        case CPRightMouseDragged:
+        case CPMouseEntered:
+        case CPMouseExited:
+            return [CPString stringWithFormat:@"CPEvent: type=%d loc=%@ time=%.1f flags=0x%X win=%@ winNum=%d ctxt=%@ evNum=%d click=%d buttonNumber=%d pressure=%f", _type, CPStringFromPoint(_location), _timestamp, _modifierFlags, _window, _windowNumber, _context, _eventNumber, _clickCount, [self buttonNumber], _pressure];
+        default:
+            return [CPString stringWithFormat:@"CPEvent: type=%d loc=%@ time=%.1f flags=0x%X win=%@ winNum=%d ctxt=%@ subtype=%d data1=%d data2=%d", _type, CPStringFromPoint(_location), _timestamp, _modifierFlags, _window, _windowNumber, _context, _subtype, _data1, _data2];
+    }
+}
+
 @end
 
 function _CPEventFirePeriodEvent()
 {
-    [CPApp sendEvent:[CPEvent otherEventWithType:CPPeriodic location:_CGPointMakeZero() modifierFlags:0 timestamp:0 windowNumber:0 context:nil subtype:0 data1:0 data2:0]];
+    [CPApp sendEvent:[CPEvent otherEventWithType:CPPeriodic location:_CGPointMakeZero() modifierFlags:0 timestamp:[CPEvent currentTimestamp] windowNumber:0 context:nil subtype:0 data1:0 data2:0]];
 }
 
 var CPEventClass = [CPEvent class];

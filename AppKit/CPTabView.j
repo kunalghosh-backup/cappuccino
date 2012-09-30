@@ -1,3 +1,25 @@
+/*
+ * CPTabView.j
+ * AppKit
+ *
+ * Created by Derek Hammer.
+ * Copyright 2010, Derek Hammer.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ */
+
 @import "CPBox.j"
 @import "CPSegmentedControl.j"
 @import "CPTabViewItem.j"
@@ -45,7 +67,6 @@ var CPTabViewDidSelectTabViewItemSelector           = 1,
     if (self = [super initWithFrame:aFrame])
     {
         _items = [CPArray array];
-        _selectedIndex = CPNotFound;
 
         [self _init];
         [self setTabViewType:CPTopTabsBezelBorder];
@@ -56,11 +77,13 @@ var CPTabViewDidSelectTabViewItemSelector           = 1,
 
 - (void)_init
 {
-    _tabs = [[CPSegmentedControl alloc] initWithFrame:CGRectMake(0, 0, 0, 0)];
+    _selectedIndex = CPNotFound;
+
+    _tabs = [[CPSegmentedControl alloc] initWithFrame:_CGRectMake(0, 0, 0, 0)];
     [_tabs setHitTests:NO];
 
     var height = [_tabs valueForThemeAttribute:@"default-height"];
-    [_tabs setFrameSize:CGSizeMake(0, height)];
+    [_tabs setFrameSize:_CGSizeMake(0, height)];
 
     _box = [[CPBox alloc] initWithFrame:[self  bounds]];
     [self setBackgroundColor:[CPColor colorWithCalibratedWhite:0.95 alpha:1.0]];
@@ -250,17 +273,15 @@ var CPTabViewDidSelectTabViewItemSelector           = 1,
     Selects the item at the specified index.
     @param anIndex the index of the item to display.
 */
-- (void)selectTabViewItemAtIndex:(unsigned)anIndex
+- (BOOL)selectTabViewItemAtIndex:(unsigned)anIndex
 {
-    var aTabViewItem = [_items objectAtIndex:anIndex];
-
     if (anIndex === _selectedIndex)
         return;
 
     var aTabViewItem = [self tabViewItemAtIndex:anIndex];
 
     if ((_delegateSelectors & CPTabViewShouldSelectTabViewItemSelector) && ![_delegate tabView:self shouldSelectTabViewItem:aTabViewItem])
-        return;
+        return NO;
 
     if (_delegateSelectors & CPTabViewWillSelectTabViewItemSelector)
         [_delegate tabView:self willSelectTabViewItem:aTabViewItem];
@@ -270,6 +291,8 @@ var CPTabViewDidSelectTabViewItemSelector           = 1,
 
     if (_delegateSelectors & CPTabViewDidSelectTabViewItemSelector)
         [_delegate tabView:self didSelectTabViewItem:aTabViewItem];
+
+    return YES;
 }
 
 /*!
@@ -278,7 +301,10 @@ var CPTabViewDidSelectTabViewItemSelector           = 1,
 */
 - (CPTabViewItem)selectedTabViewItem
 {
-    return [_items objectAtIndex:_selectedIndex];
+    if (_selectedIndex != CPNotFound)
+        return [_items objectAtIndex:_selectedIndex];
+
+    return nil;
 }
 
 // Modifying the font
@@ -324,11 +350,11 @@ var CPTabViewDidSelectTabViewItemSelector           = 1,
     else
     {
         var aFrame = [self frame],
-            segmentedHeight = CGRectGetHeight([_tabs frame]),
+            segmentedHeight = _CGRectGetHeight([_tabs frame]),
             origin = _type === CPTopTabsBezelBorder ? segmentedHeight / 2 : 0;
 
-        [_box setFrame:CGRectMake(0, origin, CGRectGetWidth(aFrame),
-                                  CGRectGetHeight(aFrame) - segmentedHeight / 2)];
+        [_box setFrame:_CGRectMake(0, origin, _CGRectGetWidth(aFrame),
+                                   _CGRectGetHeight(aFrame) - segmentedHeight / 2)];
 
         [self addSubview:_tabs];
     }
@@ -407,29 +433,30 @@ var CPTabViewDidSelectTabViewItemSelector           = 1,
 {
     var segmentIndex = [_tabs testSegment:[_tabs convertPoint:[anEvent locationInWindow] fromView:nil]];
 
-    if (segmentIndex != CPNotFound)
-    {
-        [self selectTabViewItemAtIndex:segmentIndex];
+    if (segmentIndex != CPNotFound && [self selectTabViewItemAtIndex:segmentIndex])
         [_tabs trackSegment:anEvent];
-    }
 }
 
 - (void)_repositionTabs
 {
-    var horizontalCenterOfSelf = CGRectGetWidth([self bounds]) / 2,
-        verticalCenterOfTabs = CGRectGetHeight([_tabs bounds]) / 2;
+    var horizontalCenterOfSelf = _CGRectGetWidth([self bounds]) / 2,
+        verticalCenterOfTabs = _CGRectGetHeight([_tabs bounds]) / 2;
 
     if (_type === CPBottomTabsBezelBorder)
-        [_tabs setCenter:CGPointMake(horizontalCenterOfSelf, CGRectGetHeight([self bounds]) - verticalCenterOfTabs)];
+        [_tabs setCenter:_CGPointMake(horizontalCenterOfSelf, _CGRectGetHeight([self bounds]) - verticalCenterOfTabs)];
     else
-        [_tabs setCenter:CGPointMake(horizontalCenterOfSelf, verticalCenterOfTabs)];
+        [_tabs setCenter:_CGPointMake(horizontalCenterOfSelf, verticalCenterOfTabs)];
 }
 
 - (void)_setSelectedIndex:(CPNumber)index
 {
     _selectedIndex = index;
+    [self _setContentViewFromItem:[_items objectAtIndex:_selectedIndex]];
+}
 
-    [_box setContentView:[[_items objectAtIndex:_selectedIndex] view]];
+- (void)_setContentViewFromItem:(CPTabViewItem)anItem
+{
+    [_box setContentView:[anItem view]];
 }
 
 - (void)_updateItems
@@ -444,9 +471,7 @@ var CPTabViewDidSelectTabViewItemSelector           = 1,
     }
 
     if (_selectedIndex === CPNotFound)
-    {
         [self selectFirstTabViewItem:self];
-    }
 }
 
 @end
@@ -469,16 +494,16 @@ var CPTabViewItemsKey               = "CPTabViewItemsKey",
         [_tabs setFont:_font];
 
         _items = [aCoder decodeObjectForKey:CPTabViewItemsKey];
+        [_items makeObjectsPerformSelector:@selector(_setTabView:) withObject:self];
 
         [self _updateItems];
         [self _repositionTabs];
 
-        var selected = [aCoder decodeObjectForKey:CPTabViewSelectedItemKey];
+        [self setDelegate:[aCoder decodeObjectForKey:CPTabViewDelegateKey]];
 
+        var selected = [aCoder decodeObjectForKey:CPTabViewSelectedItemKey];
         if (selected)
             [self selectTabViewItem:selected];
-
-        [self setDelegate:[aCoder decodeObjectForKey:CPTabViewDelegateKey]];
 
         [self setTabViewType:[aCoder decodeIntForKey:CPTabViewTypeKey]];
     }
@@ -491,7 +516,10 @@ var CPTabViewItemsKey               = "CPTabViewItemsKey",
     [super encodeWithCoder:aCoder];
 
     [aCoder encodeObject:_items forKey:CPTabViewItemsKey];
-    [aCoder encodeObject:[self selectedTabViewItem] forKey:CPTabViewSelectedItemKey];
+
+    var selected = [self selectedTabViewItem];
+    if (selected)
+        [aCoder encodeObject:selected forKey:CPTabViewSelectedItemKey];
 
     [aCoder encodeInt:_type forKey:CPTabViewTypeKey];
     [aCoder encodeObject:_font forKey:CPTabViewFontKey];

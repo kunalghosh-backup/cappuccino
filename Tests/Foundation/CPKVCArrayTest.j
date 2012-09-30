@@ -2,8 +2,9 @@ var COUNTER;
 
 @implementation CPKVCArrayTest : OJTestCase
 {
-    TestObject                          _object @accessors(property=object);
-    ImplementedTestObject               _implementedObject @accessors(property=implementedObject);
+    TestObject              _object @accessors(property=object);
+    ImplementedTestObject   _implementedObject @accessors(property=implementedObject);
+    CPArray                 _kvcArray @accessors(property=kvcArray);
 }
 
 - (void)setUp
@@ -14,7 +15,7 @@ var COUNTER;
     COUNTER = 0;
 }
 
-- (void)_patchSelector:(SEL)theSelector
+- (void)_patchSelector:(SEL)selectors, ...
 {
     var method_dtable = [[self object] class].method_dtable,
         method_list = [[self object] class].method_list,
@@ -39,10 +40,14 @@ var COUNTER;
         [method_list removeObject:implementation];
     }
 
-    var method = class_getInstanceMethod([[self implementedObject] class], theSelector),
-        implementation = method_getImplementation(method);
+    for (var i = 2; i < arguments.length; i++)
+    {
+        var theSelector = arguments[i],
+            method = class_getInstanceMethod([[self implementedObject] class], theSelector),
+            implementation = method_getImplementation(method);
 
-    class_addMethod([[self object] class], theSelector, implementation);
+        class_addMethod([[self object] class], theSelector, implementation);
+    }
 }
 
 - (void)testUsesCountOfKey
@@ -298,11 +303,59 @@ var COUNTER;
          message:@"replaceObjectInValuesAtIndexes:withValues: should have been called once"];
 }
 
+- (void)testSetArray
+{
+    [self _patchSelector:@selector(removeObjectFromValuesAtIndex:), @selector(insertObject:inValuesAtIndex:)];
+
+    // This should result in all 10 objects being removed from the values and the 2 new ones being inserted
+    // in a KVO compliant manner.
+    [[[self object] mutableArrayValueForKey:@"values"] setArray:[88, 99]];
+
+    [self assert:[88, 99] equals:[[self object] values]];
+    [self assert:12
+          equals:COUNTER
+         message:@"removeObjectFromValuesAtIndex: should have been called 10 times and insertObject:inValuesAtIndex: 2 times"];
+}
+
+- (void)testKVCArrayOperators
+{
+    var one = [1, 1, 1, 1, 1, 1, 1, 1],
+        two = [1, 2, 3, 4, 8, 0];
+
+    [self assert:[one valueForKey:"@count"] equals:8];
+    [self assert:[one valueForKeyPath:"@sum.intValue"] equals:8];
+    [self assert:[two valueForKeyPath:"@avg.intValue"] equals:3];
+    [self assert:[two valueForKeyPath:"@max.intValue"] equals:8];
+    [self assert:[two valueForKeyPath:"@min.intValue"] equals:0];
+
+    var a = [A new];
+    [a setValue:one forKey:"b"];
+    [self assert:[a valueForKeyPath:"b.@count"] equals:8];
+    [self assert:[a valueForKeyPath:"b.@sum.intValue"] equals:8];
+
+    var b = [];
+    [b addObject:[CPDictionary dictionaryWithObjects:[@"Tom", 27] forKeys:[@"name", @"age"]]];
+    [b addObject:[CPDictionary dictionaryWithObjects:[@"Dick", 31] forKeys:[@"name", @"age"]]];
+    [b addObject:[CPDictionary dictionaryWithObjects:[@"Harry", 47] forKeys:[@"name", @"age"]]];
+    [self assert:[b valueForKeyPath:@"@sum.age"] equals:105];
+    [self assert:[b valueForKeyPath:@"@avg.age"] equals:35];
+    [self assert:[b valueForKeyPath:@"@min.age"] equals:27];
+    [self assert:[b valueForKeyPath:@"@max.age"] equals:47];
+    [self assert:[b valueForKeyPath:@"@min.name"] equals:@"Dick"];
+    [self assert:[b valueForKeyPath:@"@max.name"] equals:@"Tom"];
+}
+
+@end
+
+@implementation A : CPObject
+{
+    id  b;
+}
 @end
 
 @implementation TestObject : CPObject
 {
-    CPArray                     _values @accessors(property=values);
+    CPArray _values @accessors(property=values);
 }
 
 - (id)init

@@ -98,9 +98,9 @@ var _CPimageAndTextViewFrameSizeChangedFlag         = 1 << 0,
             [self setLineBreakMode:CPLineBreakByClipping];
             //[self setTextColor:[aControl textColor]];
             [self setAlignment:CPCenterTextAlignment];
-            [self setFont:[CPFont systemFontOfSize:12.0]];
+            [self setFont:[CPFont systemFontOfSize:CPFontCurrentSystemSize]];
             [self setImagePosition:CPNoImage];
-            [self setImageScaling:CPScaleNone];
+            [self setImageScaling:CPImageScaleNone];
         }
 
         _textSize = nil;
@@ -242,7 +242,7 @@ var _CPimageAndTextViewFrameSizeChangedFlag         = 1 << 0,
 
 - (void)setFont:(CPFont)aFont
 {
-    if (_font === aFont)
+    if ([_font isEqual:aFont])
         return;
 
     _font = aFont;
@@ -286,6 +286,28 @@ var _CPimageAndTextViewFrameSizeChangedFlag         = 1 << 0,
 - (CGSize)textShadowOffset
 {
     return _textShadowOffset;
+}
+
+- (CGRect)textFrame
+{
+    [self layoutIfNeeded];
+
+    var textFrame = CGRectMakeZero();
+
+    if (_DOMTextElement)
+    {
+        var textStyle = _DOMTextElement.style;
+
+        textFrame.origin.y = parseInt(textStyle.top.substr(0, textStyle.top.length - 2), 10),
+        textFrame.origin.x = parseInt(textStyle.left.substr(0, textStyle.left.length - 2), 10),
+        textFrame.size.width = parseInt(textStyle.width.substr(0, textStyle.width.length - 2), 10),
+        textFrame.size.height = parseInt(textStyle.height.substr(0, textStyle.height.length - 2), 10);
+
+        textFrame.size.width += _textShadowOffset.width;
+        textFrame.size.height += _textShadowOffset.height;
+    }
+
+    return textFrame;
 }
 
 - (void)setImage:(CPImage)anImage
@@ -410,13 +432,15 @@ var _CPimageAndTextViewFrameSizeChangedFlag         = 1 << 0,
         {
             _DOMTextShadowElement = document.createElement("div");
 
-            var shadowStyle = _DOMTextShadowElement.style;
+            var shadowStyle = _DOMTextShadowElement.style,
+                font = (_font || [CPFont systemFontOfSize:CPFontCurrentSystemSize]);
 
-            shadowStyle.font = [_font ? _font : [CPFont systemFontOfSize:12.0] cssString];
+            shadowStyle.font = [font cssString];
             shadowStyle.position = "absolute";
             shadowStyle.whiteSpace = textStyle.whiteSpace;
             shadowStyle.wordWrap = textStyle.wordWrap;
             shadowStyle.color = [_textShadowColor cssString];
+            shadowStyle.lineHeight = [font defaultLineHeightForFont] + "px";
 
             shadowStyle.zIndex = 150;
             shadowStyle.textOverflow = textStyle.textOverflow;
@@ -462,11 +486,16 @@ var _CPimageAndTextViewFrameSizeChangedFlag         = 1 << 0,
 
         if (_flags & _CPImageAndTextViewFontChangedFlag)
         {
-            var fontStyle = [_font ? _font : [CPFont systemFontOfSize:12.0] cssString];
+            var font = (_font || [CPFont systemFontOfSize:CPFontCurrentSystemSize]),
+                fontStyle = [font cssString];
             textStyle.font = fontStyle;
+            textStyle.lineHeight = [font defaultLineHeightForFont] + "px";
 
             if (shadowStyle)
+            {
                 shadowStyle.font = fontStyle;
+                shadowStyle.lineHeight = [font defaultLineHeightForFont] + "px";
+            }
         }
 
         // Update the line break mode if necessary.
@@ -585,12 +614,12 @@ var _CPimageAndTextViewFrameSizeChangedFlag         = 1 << 0,
             imageWidth = imageSize.width,
             imageHeight = imageSize.height;
 
-        if (_imageScaling === CPScaleToFit)
+        if (_imageScaling === CPImageScaleAxesIndependently)
         {
             imageWidth = size.width;
             imageHeight = size.height;
         }
-        else if (_imageScaling === CPScaleProportionally)
+        else if (_imageScaling === CPImageScaleProportionallyDown)
         {
             var scale = MIN(MIN(size.width, imageWidth) / imageWidth, MIN(size.height, imageHeight) / imageHeight);
 
@@ -658,14 +687,25 @@ var _CPimageAndTextViewFrameSizeChangedFlag         = 1 << 0,
             {
                 if (_lineBreakMode === CPLineBreakByCharWrapping ||
                     _lineBreakMode === CPLineBreakByWordWrapping)
+                {
                     _textSize = [_text sizeWithFont:_font inWidth:textRectWidth];
+                }
                 else
+                {
                     _textSize = [_text sizeWithFont:_font];
+
+                    // Account for possible fractional pixels at right edge
+                    _textSize.width += 1;
+                }
+
+                // Account for possible fractional pixels at bottom edge
+                _textSize.height += 1;
             }
 
             if (_verticalAlignment === CPCenterVerticalTextAlignment)
             {
-                textRectY = textRectY + (textRectHeight - _textSize.height) / 2.0;
+                // Since we added +1 px height above to show fractional pixels on the bottom, we have to remove that when calculating vertical centre.
+                textRectY = textRectY + (textRectHeight - _textSize.height + 1.0) / 2.0;
                 textRectHeight = _textSize.height;
             }
 
@@ -678,8 +718,9 @@ var _CPimageAndTextViewFrameSizeChangedFlag         = 1 << 0,
 
         textStyle.top = ROUND(textRectY) + "px";
         textStyle.left = ROUND(textRectX) + "px";
-        textStyle.width = MAX(ROUND(textRectWidth), 0) + "px";
-        textStyle.height = MAX(ROUND(textRectHeight), 0) + "px";
+        textStyle.width = MAX(CEIL(textRectWidth), 0) + "px";
+        textStyle.height = MAX(CEIL(textRectHeight), 0) + "px";
+        textStyle.verticalAlign = @"top";
 
         if (shadowStyle)
         {
@@ -688,8 +729,8 @@ var _CPimageAndTextViewFrameSizeChangedFlag         = 1 << 0,
 
             shadowStyle.top = ROUND(textRectY + _textShadowOffset.height) + "px";
             shadowStyle.left = ROUND(textRectX + _textShadowOffset.width) + "px";
-            shadowStyle.width = MAX(ROUND(textRectWidth), 0) + "px";
-            shadowStyle.height = MAX(ROUND(textRectHeight), 0) + "px";
+            shadowStyle.width = MAX(CEIL(textRectWidth), 0) + "px";
+            shadowStyle.height = MAX(CEIL(textRectHeight), 0) + "px";
         }
     }
 #endif
@@ -712,7 +753,13 @@ var _CPimageAndTextViewFrameSizeChangedFlag         = 1 << 0,
     if ((_imagePosition !== CPImageOnly) && [_text length] > 0)
     {
         if (!_textSize)
-            _textSize = [_text sizeWithFont:_font ? _font : [CPFont systemFontOfSize:12.0]];
+        {
+            _textSize = [_text sizeWithFont:_font || [CPFont systemFontOfSize:0]];
+
+            // Account for fractional pixels
+            _textSize.width += 1;
+            _textSize.height += 1;
+        }
 
         if (!_image || _imagePosition === CPImageOverlaps)
         {

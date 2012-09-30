@@ -62,7 +62,7 @@ var CPOutlineViewDelegate_outlineView_dataViewForTableColumn_item_              
     CPOutlineViewDelegate_outlineView_shouldReorderColumn_toColumn_                                 = 1 << 12,
     CPOutlineViewDelegate_outlineView_shouldSelectItem_                                             = 1 << 13,
     CPOutlineViewDelegate_outlineView_shouldSelectTableColumn_                                      = 1 << 14,
-    CPOutlineViewDelegate_outlineView_shouldShowOutlineViewForItem_                                 = 1 << 15,
+    CPOutlineViewDelegate_outlineView_shouldShowOutlineDisclosureControlForItem_                    = 1 << 15,
     CPOutlineViewDelegate_outlineView_shouldShowViewExpansionForTableColumn_item_                   = 1 << 16,
     CPOutlineViewDelegate_outlineView_shouldTrackView_forTableColumn_item_                          = 1 << 17,
     CPOutlineViewDelegate_outlineView_shouldTypeSelectForEvent_withCurrentSearchString_             = 1 << 18,
@@ -79,6 +79,10 @@ CPOutlineViewDropOnItemIndex = -1;
 var CPOutlineViewCoalesceSelectionNotificationStateOff  = 0,
     CPOutlineViewCoalesceSelectionNotificationStateOn   = 1,
     CPOutlineViewCoalesceSelectionNotificationStateDid  = 2;
+
+#define SELECTION_SHOULD_CHANGE(anOutlineView) (!((anOutlineView)._implementedOutlineViewDelegateMethods & CPOutlineViewDelegate_selectionShouldChangeInOutlineView_) || [(anOutlineView)._outlineViewDelegate selectionShouldChangeInOutlineView:(anOutlineView)])
+
+#define SHOULD_SELECT_ITEM(anOutlineView, anItem) (!((anOutlineView)._implementedOutlineViewDelegateMethods & CPOutlineViewDelegate_outlineView_shouldSelectItem_) || [(anOutlineView)._outlineViewDelegate outlineView:(anOutlineView) shouldSelectItem:(anItem)])
 
 /*!
     @ingroup appkit
@@ -136,7 +140,7 @@ var CPOutlineViewCoalesceSelectionNotificationStateOff  = 0,
         _selectionHighlightStyle = CPTableViewSelectionHighlightStyleSourceList;
 
         // The root item has weight "0", thus represents the weight solely of its descendants.
-        _rootItemInfo = { isExpanded:YES, isExpandable:NO, level:-1, row:-1, children:[], weight:0 };
+        _rootItemInfo = { isExpanded:YES, isExpandable:NO, shouldShowOutlineDisclosureControl:NO, level:-1, row:-1, children:[], weight:0 };
 
         _itemsForRows = [];
         _itemInfosForItems = { };
@@ -147,7 +151,6 @@ var CPOutlineViewCoalesceSelectionNotificationStateOff  = 0,
 
         _retargedChildIndex = nil;
         _shouldRetargetChildIndex = NO;
-        _startHoverTime = nil;
 
         [self setIndentationPerLevel:16.0];
         [self setIndentationMarkerFollowsDataView:YES];
@@ -294,6 +297,19 @@ var CPOutlineViewCoalesceSelectionNotificationStateOff  = 0,
     return itemInfo.isExpandable;
 }
 
+- (BOOL)_shouldShowOutlineDisclosureControlForItem:(id)anItem
+{
+    if (!anItem)
+        return YES;
+
+    var itemInfo = _itemInfosForItems[[anItem UID]];
+
+    if (!itemInfo)
+        return YES;
+
+    return itemInfo.shouldShowOutlineDisclosureControl;
+}
+
 /*!
     Used to find if an item is already expanded.
 
@@ -360,9 +376,8 @@ var CPOutlineViewCoalesceSelectionNotificationStateOff  = 0,
         var previousRowCount = [self numberOfRows];
 
         itemInfo.isExpanded = YES;
-        // XXX Shouldn't the items reload before the notification is sent?
-        [self _noteItemDidExpand:anItem];
         [self reloadItem:anItem reloadChildren:YES];
+        [self _noteItemDidExpand:anItem];
 
         // Shift selection indexes below so that the same items remain selected.
         var rowCountDelta = [self numberOfRows] - previousRowCount;
@@ -453,9 +468,8 @@ var CPOutlineViewCoalesceSelectionNotificationStateOff  = 0,
     }
     itemInfo.isExpanded = NO;
 
-    // XXX Shouldn't the items reload before the notification is sent?
-    [self _noteItemDidCollapse:anItem];
     [self reloadItem:anItem reloadChildren:YES];
+    [self _noteItemDidCollapse:anItem];
 
     // Send selection notifications only after the items have loaded so that
     // the new selection is consistent with the actual rows for any observers.
@@ -690,11 +704,13 @@ var CPOutlineViewCoalesceSelectionNotificationStateOff  = 0,
 */
 - (CGRect)frameOfOutlineDisclosureControlAtRow:(CPInteger)aRow
 {
-    if (![self isExpandable:[self itemAtRow:aRow]])
+    var theItem = [self itemAtRow:aRow];
+    if (![self isExpandable:theItem] || ![self _shouldShowOutlineDisclosureControlForItem:theItem])
         return _CGRectMakeZero();
 
     var dataViewFrame = [self _frameOfOutlineDataViewAtRow:aRow],
-        frame = _CGRectMake(_CGRectGetMinX(dataViewFrame) - 10, _CGRectGetMinY(dataViewFrame), 10, _CGRectGetHeight(dataViewFrame));
+        disclosureWidth = _CGRectGetWidth([_disclosureControlPrototype frame]),
+        frame = _CGRectMake(_CGRectGetMinX(dataViewFrame) - disclosureWidth, _CGRectGetMinY(dataViewFrame), disclosureWidth, _CGRectGetHeight(dataViewFrame));
 
     return frame;
 }
@@ -822,14 +838,11 @@ var CPOutlineViewCoalesceSelectionNotificationStateOff  = 0,
                           name:CPOutlineViewSelectionIsChangingNotification
                         object:self];
 
-
-
         if ([_outlineViewDelegate respondsToSelector:@selector(outlineViewItemWillExpand:)])
             [defaultCenter
                 removeObserver:_outlineViewDelegate
                           name:CPOutlineViewItemWillExpandNotification
                         object:self];
-
 
         if ([_outlineViewDelegate respondsToSelector:@selector(outlineViewItemDidExpand:)])
             [defaultCenter
@@ -837,13 +850,11 @@ var CPOutlineViewCoalesceSelectionNotificationStateOff  = 0,
                           name:CPOutlineViewItemDidExpandNotification
                         object:self];
 
-
         if ([_outlineViewDelegate respondsToSelector:@selector(outlineViewItemWillCollapse:)])
             [defaultCenter
                 removeObserver:_outlineViewDelegate
                           name:CPOutlineViewItemWillCollapseNotification
                         object:self];
-
 
         if ([_outlineViewDelegate respondsToSelector:@selector(outlineViewItemDidCollapse:)])
             [defaultCenter
@@ -870,7 +881,7 @@ var CPOutlineViewCoalesceSelectionNotificationStateOff  = 0,
             CPOutlineViewDelegate_outlineView_shouldReorderColumn_toColumn_                      , @selector(outlineView:shouldReorderColumn:toColumn:),
             CPOutlineViewDelegate_outlineView_shouldSelectItem_                                  , @selector(outlineView:shouldSelectItem:),
             CPOutlineViewDelegate_outlineView_shouldSelectTableColumn_                           , @selector(outlineView:shouldSelectTableColumn:),
-            CPOutlineViewDelegate_outlineView_shouldShowOutlineViewForItem_                      , @selector(outlineView:shouldShowOutlineViewForItem:),
+            CPOutlineViewDelegate_outlineView_shouldShowOutlineDisclosureControlForItem_         , @selector(outlineView:shouldShowOutlineDisclosureControlForItem:),
             CPOutlineViewDelegate_outlineView_shouldShowViewExpansionForTableColumn_item_        , @selector(outlineView:shouldShowViewExpansionForTableColumn:item:),
             CPOutlineViewDelegate_outlineView_shouldTrackView_forTableColumn_item_               , @selector(outlineView:shouldTrackView:forTableColumn:item:),
             CPOutlineViewDelegate_outlineView_shouldTypeSelectForEvent_withCurrentSearchString_  , @selector(outlineView:shouldTypeSelectForEvent:withCurrentSearchString:),
@@ -920,7 +931,6 @@ var CPOutlineViewCoalesceSelectionNotificationStateOff  = 0,
             selector:@selector(outlineViewSelectionIsChanging:)
             name:CPOutlineViewSelectionIsChangingNotification
             object:self];
-
 
     if ([_outlineViewDelegate respondsToSelector:@selector(outlineViewItemWillExpand:)])
         [defaultCenter
@@ -984,7 +994,7 @@ var CPOutlineViewCoalesceSelectionNotificationStateOff  = 0,
     _disclosureControlData = nil;
     _disclosureControlQueue = [];
 
-    // fIXME: really?
+    // FIXME: really?
     [self reloadData];
 }
 
@@ -1285,7 +1295,12 @@ var CPOutlineViewCoalesceSelectionNotificationStateOff  = 0,
             item = _itemsForRows[row],
             isExpandable = [self isExpandable:item];
 
-       if (!isExpandable)
+        if (!isExpandable)
+            continue;
+
+        var disclosureControlFrame = [self frameOfOutlineDisclosureControlAtRow:row];
+
+        if (_CGRectIsEmpty(disclosureControlFrame))
             continue;
 
         var control = [self _dequeueDisclosureControl];
@@ -1295,7 +1310,7 @@ var CPOutlineViewCoalesceSelectionNotificationStateOff  = 0,
         [control setState:[self isItemExpanded:item] ? CPOnState : CPOffState];
         var selector = [self isRowSelected:row] ? @"setThemeState:" : @"unsetThemeState:";
         [control performSelector:CPSelectorFromString(selector) withObject:CPThemeStateSelected];
-        [control setFrame:[self frameOfOutlineDisclosureControlAtRow:row]];
+        [control setFrame:disclosureControlFrame];
 
         [self addSubview:control];
     }
@@ -1348,7 +1363,7 @@ var CPOutlineViewCoalesceSelectionNotificationStateOff  = 0,
         [self collapseItem:item];
 
     else
-        [self expandItem:item];
+        [self expandItem:item expandChildren:([[CPApp currentEvent] modifierFlags] & CPAlternateKeyMask)];
 }
 
 /*!
@@ -1459,7 +1474,6 @@ var CPOutlineViewCoalesceSelectionNotificationStateOff  = 0,
                     userInfo:[CPDictionary dictionaryWithObject:item forKey:"CPObject"]];
 }
 
-
 - (void)keyDown:(CPEvent)anEvent
 {
     var character = [anEvent charactersIgnoringModifiers],
@@ -1483,7 +1497,6 @@ var CPOutlineViewCoalesceSelectionNotificationStateOff  = 0,
     for (; i < c; i++)
         items.push([self itemAtRow:indexes[i]]);
 
-
     if (character === CPRightArrowFunctionKey)
     {
         for (var i = 0; i < c; i++)
@@ -1491,12 +1504,32 @@ var CPOutlineViewCoalesceSelectionNotificationStateOff  = 0,
     }
     else if (character === CPLeftArrowFunctionKey)
     {
+        // When a single, collapsed item is selected and the left arrow key is pressed, the parent
+        // should be selected if possible.
+        if (c == 1)
+        {
+            var theItem = items[0];
+            if (![self isItemExpanded:theItem])
+            {
+                var parent = [self parentForItem:theItem],
+                    shouldSelect = parent && SELECTION_SHOULD_CHANGE(self) && SHOULD_SELECT_ITEM(self, parent);
+                if (shouldSelect)
+                {
+                    var rowIndex = [self rowForItem:parent];
+                    [self selectRowIndexes:[CPIndexSet indexSetWithIndex:rowIndex] byExtendingSelection:NO];
+                    [self scrollRowToVisible:rowIndex];
+                    return;
+                }
+            }
+        }
+
         for (var i = 0; i < c; i++)
             [self collapseItem:items[i]];
     }
 
     [super keyDown:anEvent];
 }
+
 @end
 
 // FIX ME: We're using with() here because Safari fails if we use anOutlineView._itemInfosForItems or whatever...
@@ -1535,6 +1568,7 @@ var _reloadItem = function(/*CPOutlineView*/ anOutlineView, /*id*/ anItem)
 
         itemInfo.isExpandable = [dataSource outlineView:anOutlineView isItemExpandable:newItem];
         itemInfo.isExpanded = itemInfo.isExpandable && itemInfo.isExpanded;
+        itemInfo.shouldShowOutlineDisclosureControl = !(_implementedOutlineViewDelegateMethods & CPOutlineViewDelegate_outlineView_shouldShowOutlineDisclosureControlForItem_) || [_outlineViewDelegate outlineView:self shouldShowOutlineDisclosureControlForItem:newItem];
     }
 };
 
@@ -1560,6 +1594,7 @@ var _loadItemInfoForItem = function(/*CPOutlineView*/ anOutlineView, /*id*/ anIt
                 return [];
 
             itemInfo.isExpandable = [dataSource outlineView:anOutlineView isItemExpandable:anItem];
+            itemInfo.shouldShowOutlineDisclosureControl = !(_implementedOutlineViewDelegateMethods & CPOutlineViewDelegate_outlineView_shouldShowOutlineDisclosureControlForItem_) || [_outlineViewDelegate outlineView:self shouldShowOutlineDisclosureControlForItem:anItem];
 
             // If we were previously expanded, but now no longer expandable, "de-expand".
             // NOTE: we are *not* collapsing, thus no notification is posted.
@@ -1590,7 +1625,7 @@ var _loadItemInfoForItem = function(/*CPOutlineView*/ anOutlineView, /*id*/ anIt
 
                 if (!childItemInfo)
                 {
-                    childItemInfo = { isExpanded:NO, isExpandable:NO, children:[], weight:1 };
+                    childItemInfo = { isExpanded:NO, isExpandable:NO, shouldShowOutlineDisclosureControl:YES, children:[], weight:1 };
                     itemInfosForItems[[childItem UID]] = childItemInfo;
                 }
 
@@ -1793,9 +1828,9 @@ var _loadItemInfoForItem = function(/*CPOutlineView*/ anOutlineView, /*id*/ anIt
     var dataView = nil;
 
     if ((_outlineView._implementedOutlineViewDelegateMethods & CPOutlineViewDelegate_outlineView_dataViewForTableColumn_item_))
-            dataView = [_outlineView._outlineViewDelegate outlineView:_outlineView
-                                           dataViewForTableColumn:theTableColumn
-                                                             item:[_outlineView itemAtRow:theRow]];
+        dataView = [_outlineView._outlineViewDelegate outlineView:_outlineView
+                                       dataViewForTableColumn:theTableColumn
+                                                         item:[_outlineView itemAtRow:theRow]];
 
     if (!dataView)
         dataView = [theTableColumn dataViewForRow:theRow];
@@ -1805,10 +1840,12 @@ var _loadItemInfoForItem = function(/*CPOutlineView*/ anOutlineView, /*id*/ anIt
 
 - (BOOL)tableView:(CPTableView)theTableView shouldSelectRow:(int)theRow
 {
-    if ((_outlineView._implementedOutlineViewDelegateMethods & CPOutlineViewDelegate_outlineView_shouldSelectItem_))
-        return [_outlineView._outlineViewDelegate outlineView:_outlineView shouldSelectItem:[_outlineView itemAtRow:theRow]];
+    return SHOULD_SELECT_ITEM(_outlineView, [_outlineView itemAtRow:theRow]);
+}
 
-    return YES;
+- (BOOL)selectionShouldChangeInTableView:(CPTableView)theTableView
+{
+    return SELECTION_SHOULD_CHANGE(_outlineView);
 }
 
 - (BOOL)tableView:(CPTableView)aTableView shouldEditTableColumn:(CPTableColumn)aColumn row:(int)aRow
@@ -1852,7 +1889,9 @@ var _loadItemInfoForItem = function(/*CPOutlineView*/ anOutlineView, /*id*/ anIt
         return [_outlineView._outlineViewDelegate outlineView:_outlineView menuForTableColumn:aTableColumn item:item]
     }
 
-    return nil;
+    // We reimplement CPView menuForEvent: because we can't call it directly. CPTableView implements menuForEvent:
+    // to call this delegate method.
+    return [_outlineView menu] || [[_outlineView class] defaultMenu];
 }
 
 @end
@@ -1886,16 +1925,22 @@ var _loadItemInfoForItem = function(/*CPOutlineView*/ anOutlineView, /*id*/ anIt
 - (void)drawRect:(CGRect)aRect
 {
     var bounds = [self bounds],
-        context = [[CPGraphicsContext currentContext] graphicsPort];
+        context = [[CPGraphicsContext currentContext] graphicsPort],
+        width = _CGRectGetWidth(bounds),
+        height = _CGRectGetHeight(bounds);
 
     CGContextBeginPath(context);
 
-    CGContextTranslateCTM(context, _CGRectGetWidth(bounds) / 2.0, _CGRectGetHeight(bounds) / 2.0);
-    CGContextRotateCTM(context, _angle);
-    CGContextTranslateCTM(context, -_CGRectGetWidth(bounds) / 2.0, -_CGRectGetHeight(bounds) / 2.0);
+    if (_angle)
+    {
+        var centre = _CGPointMake(FLOOR(width / 2.0), FLOOR(height / 2.0));
+        CGContextTranslateCTM(context, centre.x, centre.y);
+        CGContextRotateCTM(context, _angle);
+        CGContextTranslateCTM(context, -centre.x, -centre.y);
+    }
 
     // Center, but crisp.
-    CGContextTranslateCTM(context, FLOOR((_CGRectGetWidth(bounds) - 9.0) / 2.0), FLOOR((_CGRectGetHeight(bounds) - 8.0) / 2.0));
+    CGContextTranslateCTM(context, FLOOR((width - 9.0) / 2.0), FLOOR((height - 8.0) / 2.0));
 
     CGContextMoveToPoint(context, 0.0, 0.0);
     CGContextAddLineToPoint(context, 9.0, 0.0);
@@ -1908,20 +1953,14 @@ var _loadItemInfoForItem = function(/*CPOutlineView*/ anOutlineView, /*id*/ anIt
             [self hasThemeState:CPThemeStateHighlighted]));
     CGContextFillPath(context);
 
-
     CGContextBeginPath(context);
     CGContextMoveToPoint(context, 0.0, 0.0);
 
+    CGContextAddLineToPoint(context, 4.5, 8.0);
     if (_angle === 0.0)
-    {
-        CGContextAddLineToPoint(context, 4.5, 8.0);
         CGContextAddLineToPoint(context, 9.0, 0.0);
-    }
 
-    else
-        CGContextAddLineToPoint(context, 4.5, 8.0);
-
-    CGContextSetStrokeColor(context, [CPColor colorWithCalibratedWhite:1.0 alpha: 0.8]);
+    CGContextSetStrokeColor(context, [CPColor colorWithCalibratedWhite:1.0 alpha: 0.7]);
     CGContextStrokePath(context);
 }
 
