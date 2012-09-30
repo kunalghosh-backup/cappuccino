@@ -564,7 +564,7 @@
 - (BOOL)setSelectionIndexes:(CPIndexSet)indexes
 {
     [self _selectionWillChange]
-    var r = [self __setSelectionIndexes:indexes];
+    var r = [self __setSelectionIndexes:indexes avoidEmpty:NO];
     [self _selectionDidChange];
     return r;
 }
@@ -584,6 +584,11 @@
 */
 - (BOOL)__setSelectionIndexes:(CPIndexSet)indexes
 {
+    return [self __setSelectionIndexes:indexes avoidEmpty:_avoidsEmptySelection];
+}
+
+- (BOOL)__setSelectionIndexes:(CPIndexSet)indexes avoidEmpty:(BOOL)avoidEmpty
+{
     var newIndexes = indexes;
 
     if (!newIndexes)
@@ -591,7 +596,7 @@
 
     if (![newIndexes count])
     {
-        if (_avoidsEmptySelection && [[self arrangedObjects] count])
+        if (avoidEmpty && [[self arrangedObjects] count])
             newIndexes = [CPIndexSet indexSetWithIndex:0];
     }
     else
@@ -606,7 +611,7 @@
         // Remove out of bounds indexes.
         [newIndexes removeIndexesInRange:CPMakeRange(objectsCount, [newIndexes lastIndex] + 1)];
         // When avoiding empty selection and the deleted selection was at the bottom, select the last item.
-        if (![newIndexes count] && _avoidsEmptySelection && objectsCount)
+        if (![newIndexes count] && avoidEmpty && objectsCount)
             newIndexes = [CPIndexSet indexSetWithIndex:objectsCount - 1];
     }
 
@@ -647,7 +652,7 @@
     [self willChangeValueForKey:@"selectionIndexes"];
     [self _selectionWillChange];
 
-    var r = [self __setSelectedObjects:objects];
+    var r = [self __setSelectedObjects:objects avoidEmpty:NO];
 
     [self didChangeValueForKey:@"selectionIndexes"];
     [self _selectionDidChange];
@@ -659,6 +664,11 @@
     @ignore
 */
 - (BOOL)__setSelectedObjects:(CPArray)objects
+{
+    [self __setSelectedObjects:objects avoidEmpty:_avoidsEmptySelection];
+}
+
+- (BOOL)__setSelectedObjects:(CPArray)objects avoidEmpty:(BOOL)avoidEmpty
 {
     var set = [CPIndexSet indexSet],
         count = [objects count],
@@ -672,7 +682,7 @@
             [set addIndex:index];
     }
 
-    [self __setSelectionIndexes:set];
+    [self __setSelectionIndexes:set avoidEmpty:avoidEmpty];
     return YES;
 }
 
@@ -869,6 +879,9 @@
 
         [_arrangedObjects removeObjectAtIndex:pos];
         [_selectionIndexes shiftIndexesStartingAtIndex:pos by:-1];
+
+        // This will automatically handle the avoidsEmptySelection case.
+        [self __setSelectionIndexes:_selectionIndexes];
     }
 
     [self didChangeValueForKey:@"content"];
@@ -911,6 +924,15 @@
 }
 
 /*!
+    Removes the object at the specified index in the controller's arranged objects from the content array.
+    @param int index - index of the object to remove.
+*/
+- (void)removeObjectAtArrangedObjectIndex:(int)index
+{
+    [self removeObjectsAtArrangedObjectIndexes:[CPIndexSet indexSetWithIndex:index]];
+}
+
+/*!
     Removes the objects at the specified indexes in the controller's arranged objects from the content array.
     @param CPIndexSet indexes - indexes of the objects to remove.
 */
@@ -924,36 +946,38 @@
     _disableSetContent = YES;
 
     var arrangedObjects = [self arrangedObjects],
-        index = [anIndexSet lastIndex],
         position = CPNotFound,
         newSelectionIndexes = [_selectionIndexes copy];
 
-    while (index !== CPNotFound)
-    {
-        var object = [arrangedObjects objectAtIndex:index];
-
-        // First try the simple case which should work if there are no sort descriptors.
-        if ([_contentObject objectAtIndex:index] === object)
-            [_contentObject removeObjectAtIndex:index];
-        else
+    [anIndexSet enumerateIndexesWithOptions:CPEnumerationReverse
+                                 usingBlock:function(anIndex)
         {
-            // Since we don't have a reverse mapping between the sorted order and the
-            // unsorted one, we'll just simply have to remove an arbitrary pointer. It might
-            // be the 'wrong' one - as in not the one the user selected - but the wrong
-            // one is still just another pointer to the same object, so the user will not
-            // be able to see any difference.
-            contentIndex = [_contentObject indexOfObjectIdenticalTo:object];
-            [_contentObject removeObjectAtIndex:contentIndex];
-        }
-        [arrangedObjects removeObjectAtIndex:index];
+            var object = [arrangedObjects objectAtIndex:anIndex];
 
-        // Deselect this row if it was selected, and either way shift all selection indexes
-        // following it up by 1.
-        [newSelectionIndexes removeIndex:index];
-        [newSelectionIndexes shiftIndexesStartingAtIndex:index by:-1];
+            // First try the simple case which should work if there are no sort descriptors.
+            if ([_contentObject objectAtIndex:anIndex] === object)
+                [_contentObject removeObjectAtIndex:anIndex];
+            else
+            {
+                // Since we don't have a reverse mapping between the sorted order and the
+                // unsorted one, we'll just simply have to remove an arbitrary pointer. It might
+                // be the 'wrong' one - as in not the one the user selected - but the wrong
+                // one is still just another pointer to the same object, so the user will not
+                // be able to see any difference.
+                contentIndex = [_contentObject indexOfObjectIdenticalTo:object];
+                [_contentObject removeObjectAtIndex:contentIndex];
+            }
+            [arrangedObjects removeObjectAtIndex:anIndex];
 
-        index = [anIndexSet indexLessThanIndex:index];
-    }
+            if (!_avoidsEmptySelection || [newSelectionIndexes count] > 1)
+            {
+                [newSelectionIndexes removeIndex:anIndex];
+                [newSelectionIndexes shiftIndexesStartingAtIndex:anIndex by:-1];
+            }
+            else if ([newSelectionIndexes lastIndex] !== anIndex)
+                [newSelectionIndexes shiftIndexesStartingAtIndex:anIndex by:-1];
+        }];
+
     // Allow handlesContentAsCompoundValue reverse sets to trigger.
     [[CPBinder getBinding:@"contentArray" forObject:self] _contentArrayDidChange];
     _disableSetContent = NO;
@@ -1066,22 +1090,45 @@
     var destination = [_info objectForKey:CPObservedObjectKey],
         keyPath = [_info objectForKey:CPObservedKeyPathKey],
         options = [_info objectForKey:CPOptionsKey],
-        isCompound = [self handlesContentAsCompoundValue];
+        isCompound = [self handlesContentAsCompoundValue],
+        dotIndex = keyPath.lastIndexOf("."),
+        firstPart = dotIndex !== CPNotFound ? keyPath.substring(0, dotIndex) : nil,
+        isSelectionProxy = firstPart && [[destination valueForKeyPath:firstPart] isKindOfClass:CPControllerSelectionProxy];
 
-    if (!isCompound)
+    if (!isCompound && !isSelectionProxy)
     {
         newValue = [destination mutableArrayValueForKeyPath:keyPath];
     }
     else
     {
-        // handlesContentAsCompoundValue == YES so we cannot just set up a proxy.
+        // 1. If handlesContentAsCompoundValue we cannot just set up a proxy.
         // Every read and every write must go through transformValue and
         // reverseTransformValue, and the resulting object cannot be described by
         // a key path.
+
+        // 2. If isSelectionProxy, we don't want to proxy a proxy - that's bad
+        // for performance and won't work with markers.
+
         newValue = [destination valueForKeyPath:keyPath];
     }
 
-    newValue = [self transformValue:newValue withOptions:options];
+    var isPlaceholder = CPIsControllerMarker(newValue);
+    if (isPlaceholder)
+    {
+        if (newValue === CPNotApplicableMarker && [options objectForKey:CPRaisesForNotApplicableKeysBindingOption])
+        {
+           [CPException raise:CPGenericException
+                       reason:@"can't transform non applicable key on: " + _source + " value: " + newValue];
+        }
+
+        newValue = [self _placeholderForMarker:newValue];
+
+        // This seems to be what Cocoa does.
+        if (!newValue)
+            newValue = [CPMutableArray array];
+    }
+    else
+        newValue = [self transformValue:newValue withOptions:options];
 
     if (isCompound)
     {

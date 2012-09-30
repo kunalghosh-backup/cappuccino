@@ -255,7 +255,7 @@ var CPThemesByName          = { },
         attributeNames = [attributes keyEnumerator],
         objectThemeClass = [anObject themeClass];
 
-    while (attributeName = [attributeNames nextObject])
+    while ((attributeName = [attributeNames nextObject]) !== nil)
         [self _recordAttribute:[attributes objectForKey:attributeName] forClass:objectThemeClass];
 }
 
@@ -418,6 +418,9 @@ CPThemeStateEditing         = CPThemeState("editing");
 CPThemeStateVertical        = CPThemeState("vertical");
 CPThemeStateDefault         = CPThemeState("default");
 CPThemeStateCircular        = CPThemeState("circular");
+CPThemeStateAutocompleting  = CPThemeState("autocompleting");
+CPThemeStateMainWindow      = CPThemeState("mainWindow");
+CPThemeStateKeyWindow       = CPThemeState("keyWindow");
 
 @implementation _CPThemeAttribute : CPObject
 {

@@ -115,7 +115,8 @@ function CPDecimalMakeWithString(string, locale)
 
     // Note: this doesn't accept .01 for example, should it?
     // If yes simply add '?' after integer part group, i.e. ([+\-]?)((?:0|[1-9]\d*)?)
-    var matches = string.match(/^([+\-]?)((?:0|[1-9]\d*))(?:\.(\d*))?(?:[eE]([+\-]?)(\d+))?$/);
+    // Note: now it accept .01 style.
+    var matches = string.match(/^([+\-]?)((?:0|[1-9]\d*)?)(?:\.(\d*))?(?:[eE]([+\-]?)(\d+))?$/);
     if (!matches)
         return CPDecimalMakeNaN();
 
@@ -141,6 +142,10 @@ function CPDecimalMakeWithString(string, locale)
     {
         // input is too long, increase exponent and truncate
         exponent += inputlength - CPDecimalMaxDigits;
+    }
+    else if (inputlength === 0)
+    {
+        return CPDecimalMakeNaN();
     }
 
     if (exponent > CPDecimalMaxExponent || exponent < CPDecimalMinExponent)
@@ -181,7 +186,7 @@ function CPDecimalMakeWithParts(mantissa, exponent)
     var m = [],
         isNegative = NO;
 
-    if (mantissa < 0 )
+    if (mantissa < 0)
     {
         isNegative = YES;
         mantissa = ABS(mantissa);
@@ -765,7 +770,7 @@ function _SimpleDivide(result, leftOperand, rightOperand, roundingMode)
 
     n1._mantissa = [];
 
-    while ((k < leftOperand._mantissa.length) || (n1._mantissa.length
+    while ((used < leftOperand._mantissa.length) || (n1._mantissa.length
                                                     && !((n1._mantissa.length == 1) && (n1._mantissa[0] == 0))))
     {
         while (CPOrderedAscending == CPDecimalCompare(n1, rightOperand))
@@ -1400,9 +1405,8 @@ function CPDecimalRound(result, dcm, scale ,roundingMode)
 function CPDecimalCompact(dcm)
 {
     // if positive or zero exp leading zeros simply delete, trailing ones u need to increment exponent
-    if (!dcm || dcm._mantissa.length == 0 || CPDecimalIsNotANumber(dcm) )
+    if (!dcm || dcm._mantissa.length == 0 || CPDecimalIsNotANumber(dcm))
         return;
-
 
     if (CPDecimalIsZero(dcm))
     {
